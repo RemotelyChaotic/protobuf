@@ -1,5 +1,6 @@
-# Starlark utilities for working with other build systems
+"""Starlark utilities for working with other build systems."""
 
+load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_pkg//:providers.bzl", "PackageFilegroupInfo", "PackageFilesInfo")
 load(":cc_dist_library.bzl", "CcFileList")
 
@@ -129,7 +130,10 @@ def _create_file_list_impl(ctx, fragment_generator):
     out = ctx.outputs.out
 
     fragments = []
-    for srcrule, libname in ctx.attr.src_libs.items():
+    for srcrule, value in ctx.attr.src_libs.items():
+        split_value = value.split(",")
+        libname = split_value[0]
+        gencode_dir = split_value[1] if len(split_value) == 2 else ""
         if CcFileList in srcrule:
             cc_file_list = srcrule[CcFileList]
 
@@ -170,13 +174,13 @@ def _create_file_list_impl(ctx, fragment_generator):
                     srcrule.label,
                     libname + "_srcs",
                     ctx.attr.source_prefix,
-                    proto_file_list.srcs,
+                    [gencode_dir + paths.basename(s) if gencode_dir else s for s in proto_file_list.srcs],
                 ),
                 fragment_generator(
                     srcrule.label,
                     libname + "_hdrs",
                     ctx.attr.source_prefix,
-                    proto_file_list.hdrs,
+                    [gencode_dir + paths.basename(s) if gencode_dir else s for s in proto_file_list.hdrs],
                 ),
             ])
 
@@ -212,9 +216,10 @@ def _create_file_list_impl(ctx, fragment_generator):
                 ),
             )
 
+    generator_label = "@//%s:%s" % (ctx.label.package, ctx.label.name)
     ctx.actions.write(
         output = out,
-        content = (ctx.attr._header % ctx.label) + "\n".join(fragments),
+        content = (ctx.attr._header % generator_label) + "\n".join(fragments),
     )
 
     return [DefaultInfo(files = depset([out]))]
@@ -231,14 +236,14 @@ _source_list_common_attrs = {
     ),
     "src_libs": attr.label_keyed_string_dict(
         doc = (
-            "A dict, {target: libname} of libraries to include. " +
+            "A dict, {target: libname[,gencode_dir]} of libraries to include. " +
             "Targets can be C++ rules (like `cc_library` or `cc_test`), " +
             "`proto_library` rules, files, `filegroup` rules, `pkg_files` " +
             "rules, or `pkg_filegroup` rules. " +
             "The libname is a string, and used to construct the variable " +
             "name in the `out` file holding the target's sources. " +
             "For generated files, the output root (like `bazel-bin/`) is not " +
-            "included. " +
+            "included. gencode_dir is used instead of target's location if provided." +
             "For `pkg_files` and `pkg_filegroup` rules, the destination path " +
             "is used."
         ),
@@ -274,14 +279,18 @@ def _cmake_var_fragment(owner, varname, prefix, entries):
       A string.
     """
     return (
-        "# {owner}\n" +
+        "# @//{package}:{name}\n" +
         "set({varname}\n" +
         "{entries}\n" +
         ")\n"
     ).format(
-        owner = owner,
+        package = owner.package,
+        name = owner.name,
         varname = varname,
-        entries = "\n".join(["  %s%s" % (prefix, f) for f in entries]),
+        # Strip out "wkt/google/protobuf/" from the well-known type file paths.
+        # This is currently necessary to allow checked-in and generated
+        # versions of the well-known type generated code to coexist.
+        entries = "\n".join(["  %s%s" % (prefix, f.replace("wkt/google/protobuf/", "")) for f in entries]),
     )
 
 def _cmake_file_list_impl(ctx):

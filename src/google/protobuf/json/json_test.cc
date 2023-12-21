@@ -1,32 +1,9 @@
 // Protocol Buffers - Google's data interchange format
 // Copyright 2008 Google Inc.  All rights reserved.
-// https://developers.google.com/protocol-buffers/
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-// copyright notice, this list of conditions and the following disclaimer
-// in the documentation and/or other materials provided with the
-// distribution.
-//     * Neither the name of Google Inc. nor the names of its
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file or at
+// https://developers.google.com/open-source/licenses/bsd
 
 #include "google/protobuf/json/json.h"
 
@@ -42,7 +19,6 @@
 #include "google/protobuf/struct.pb.h"
 #include "google/protobuf/timestamp.pb.h"
 #include "google/protobuf/wrappers.pb.h"
-#include "google/protobuf/unittest.pb.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"
@@ -50,10 +26,12 @@
 #include "absl/strings/string_view.h"
 #include "google/protobuf/descriptor_database.h"
 #include "google/protobuf/dynamic_message.h"
+#include "google/protobuf/io/test_zero_copy_stream.h"
 #include "google/protobuf/io/zero_copy_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "google/protobuf/util/json_format.pb.h"
 #include "google/protobuf/util/json_format_proto3.pb.h"
+#include "google/protobuf/unittest.pb.h"
 #include "google/protobuf/util/type_resolver.h"
 #include "google/protobuf/util/type_resolver_util.h"
 #include "google/protobuf/stubs/status_macros.h"
@@ -73,12 +51,13 @@ using ::proto3::TestMap;
 using ::proto3::TestMessage;
 using ::proto3::TestOneof;
 using ::proto3::TestWrapper;
+using ::testing::ContainsRegex;
 using ::testing::ElementsAre;
 using ::testing::IsEmpty;
 using ::testing::Not;
 using ::testing::SizeIs;
 
-// TODO(b/234474291): Use the gtest versions once that's available in OSS.
+// TODO: Use the gtest versions once that's available in OSS.
 MATCHER_P(IsOkAndHolds, inner,
           absl::StrCat("is OK and holds ", testing::PrintToString(inner))) {
   if (!arg.ok()) {
@@ -273,20 +252,20 @@ TEST_P(JsonTest, TestDefaultValues) {
           R"("defaultForeignEnum":"FOREIGN_BAR","defaultImportEnum":"IMPORT_BAR",)"
           R"("defaultStringPiece":"abc","defaultCord":"123"})"));
 
-    EXPECT_THAT(
-        ToJson(protobuf_unittest::TestExtremeDefaultValues(), options),
-        IsOkAndHolds(
-            R"({"escapedBytes":"XDAwMFwwMDFcMDA3XDAxMFwwMTRcblxyXHRcMDEzXFxcJ1wiXDM3Ng==")"
-            R"(,"largeUint32":4294967295,"largeUint64":"18446744073709551615",)"
-            R"("smallInt32":-2147483647,"smallInt64":"-9223372036854775807",)"
-            R"("utf8String":"ሴ","zeroFloat":0,"oneFloat":1,"smallFloat":1.5,)"
-            R"("negativeOneFloat":-1,"negativeFloat":-1.5,"largeFloat":2e+08,)"
-            R"("smallNegativeFloat":-8e-28,"infDouble":0,"negInfDouble":0,)"
-            R"("nanDouble":0,"infFloat":0,"negInfFloat":0,"nanFloat":0,)"
-            R"("cppTrigraph":"? ? ?? ?? ??? ??/ ??-","reallySmallInt32":-2147483648)"
-            R"(,"reallySmallInt64":"-9223372036854775808","stringWithZero":"hel\u0000lo")"
-            R"(,"bytesWithZero":"d29yXDAwMGxk","stringPieceWithZero":"ab\u0000c")"
-            R"(,"cordWithZero":"12\u00003","replacementString":"${unknown}"})"));
+  EXPECT_THAT(
+      ToJson(protobuf_unittest::TestExtremeDefaultValues(), options),
+      IsOkAndHolds(
+          R"({"escapedBytes":"XDAwMFwwMDFcMDA3XDAxMFwwMTRcblxyXHRcMDEzXFxcJ1wiXDM3Ng==")"
+          R"(,"largeUint32":4294967295,"largeUint64":"18446744073709551615",)"
+          R"("smallInt32":-2147483647,"smallInt64":"-9223372036854775807",)"
+          R"("utf8String":"ሴ","zeroFloat":0,"oneFloat":1,"smallFloat":1.5,)"
+          R"("negativeOneFloat":-1,"negativeFloat":-1.5,"largeFloat":2e+08,)"
+          R"("smallNegativeFloat":-8e-28,"infDouble":0,"negInfDouble":0,)"
+          R"("nanDouble":0,"infFloat":0,"negInfFloat":0,"nanFloat":0,)"
+          R"("cppTrigraph":"? ? ?? ?? ??? ??/ ??-","reallySmallInt32":-2147483648)"
+          R"(,"reallySmallInt64":"-9223372036854775808","stringWithZero":"hel\u0000lo")"
+          R"(,"bytesWithZero":"d29yXDAwMGxk","stringPieceWithZero":"ab\u0000c")"
+          R"(,"cordWithZero":"12\u00003","replacementString":"${unknown}"})"));
 }
 
 TEST_P(JsonTest, TestPreserveProtoFieldNames) {
@@ -313,6 +292,28 @@ TEST_P(JsonTest, EvilString) {
                                 "\"}");
   ASSERT_OK(m);
   EXPECT_EQ(m->string_value(), "\n\r\b\f\1\2\3");
+}
+
+TEST_P(JsonTest, Unquoted64) {
+  TestMessage m;
+  m.add_repeated_int64_value(0);
+  m.add_repeated_int64_value(42);
+  m.add_repeated_int64_value(-((int64_t{1} << 60) + 1));
+  m.add_repeated_int64_value(INT64_MAX);
+  // This is a power of two and is therefore representable.
+  m.add_repeated_int64_value(INT64_MIN);
+  m.add_repeated_uint64_value(0);
+  m.add_repeated_uint64_value(42);
+  m.add_repeated_uint64_value((uint64_t{1} << 60) + 1);
+  // This will be UB without the min/max check in RoundTripsThroughDouble().
+  m.add_repeated_uint64_value(UINT64_MAX);
+
+  PrintOptions opts;
+  opts.unquote_int64_if_possible = true;
+  EXPECT_THAT(
+      ToJson(m, opts),
+      R"({"repeatedInt64Value":[0,42,"-1152921504606846977","9223372036854775807",-9223372036854775808],)"
+      R"("repeatedUint64Value":[0,42,"1152921504606846977","18446744073709551615"]})");
 }
 
 TEST_P(JsonTest, TestAlwaysPrintEnumsAsInts) {
@@ -704,24 +705,35 @@ TEST_P(JsonTest, TestParsingAny) {
           R"("int32Value":5,"stringValue":"expected_value","messageValue":{"value":1}}})"));
 }
 
-TEST_P(JsonTest, TestParsingAnyMiddleAtType) {
+TEST_P(JsonTest, TestParsingAnyWithRequiredFields) {
   auto m = ToProto<TestAny>(R"json(
     {
       "value": {
-        "int32_value": 5,
-        "string_value": "expected_value",
-        "@type": "type.googleapis.com/proto3.TestMessage",
-        "message_value": {"value": 1}
+        "@type": "type.googleapis.com/protobuf_unittest.TestRequired",
+        "a": 5,
+        "dummy2": 6,
+        "b": 7
       }
     }
   )json");
   ASSERT_OK(m);
 
-  TestMessage t;
-  ASSERT_TRUE(m->value().UnpackTo(&t));
-  EXPECT_EQ(t.int32_value(), 5);
-  EXPECT_EQ(t.string_value(), "expected_value");
-  EXPECT_EQ(t.message_value().value(), 1);
+  protobuf_unittest::TestRequired t;
+  // Can't use UnpackTo directly, since that checks IsInitialized.
+  ASSERT_FALSE(m->value().UnpackTo(&t));
+
+  t.Clear();
+  EXPECT_TRUE(t.ParsePartialFromString(m->value().value()));
+  EXPECT_EQ(t.a(), 5);
+  EXPECT_EQ(t.dummy2(), 6);
+  EXPECT_EQ(t.b(), 7);
+  EXPECT_FALSE(t.has_c());
+
+  EXPECT_THAT(
+      ToJson(*m),
+      IsOkAndHolds(
+          R"({"value":{"@type":"type.googleapis.com/protobuf_unittest.TestRequired",)"
+          R"("a":5,"dummy2":6,"b":7}})"));
 }
 
 TEST_P(JsonTest, TestParsingAnyEndAtType) {
@@ -972,6 +984,21 @@ TEST_P(JsonTest, TestParsingUnknownEnumsProto3FromArray) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
+TEST_P(JsonTest, TestParsingRepeatedUnknownEnums) {
+  absl::string_view input = R"json({
+    "repeated_enum_value": ["FOO", "BAZ", "BAR"]
+  })json";
+
+  EXPECT_THAT(ToProto<TestMessage>(input),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+
+  ParseOptions options;
+  options.ignore_unknown_fields = true;
+  auto m = ToProto<TestMessage>(input, options);
+  ASSERT_OK(m);
+  EXPECT_THAT(m->repeated_enum_value(), ElementsAre(proto3::FOO, proto3::BAR));
+}
+
 TEST_P(JsonTest, TestParsingEnumCaseSensitive) {
   TestMessage m;
   m.set_enum_value(proto3::FOO);
@@ -1027,6 +1054,16 @@ TEST_P(JsonTest, Extensions) {
           R"("[protobuf_unittest.TestMixedFieldsAndExtensions.c]":42,)"
           R"("b":[1,2,3],)"
           R"("[protobuf_unittest.TestMixedFieldsAndExtensions.d]":[1,1,2,3,5,8,13]})"));
+
+  auto m2 = ToProto<protobuf_unittest::TestAllTypes>(R"json({
+    "[this.extension.does.not.exist]": 42
+  })json");
+  EXPECT_THAT(m2, StatusIs(absl::StatusCode::kInvalidArgument));
+
+  auto m3 = ToProto<protobuf_unittest::TestAllTypes>(R"json({
+    "[protobuf_unittest.TestMixedFieldsAndExtensions.c]": 42
+  })json");
+  EXPECT_THAT(m3, StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
 // Parsing does NOT work like MergeFrom: existing repeated field values are
@@ -1107,7 +1144,7 @@ TEST_P(JsonTest, TestDuration) {
   EXPECT_THAT(ToJson(m5->value()), IsOkAndHolds("\"0.500s\""));
 }
 
-// These tests are not exhaustive; tests in //third_party/protobuf/conformance
+// These tests are not exhaustive; tests in //google/protobuf/conformance
 // are more comprehensive.
 TEST_P(JsonTest, TestTimestamp) {
   auto m = ToProto<proto3::TestTimestamp>(R"json(
@@ -1278,9 +1315,8 @@ TEST_P(JsonTest, FieldOrder) {
       resolver_.get(), "type.googleapis.com/proto3.TestMessage",
       "\x18\x03\xb0\x01\x02\x08\x01\xb0\x01\x02", &out);
   ASSERT_OK(s);
-    EXPECT_EQ(
-        out,
-        R"({"boolValue":true,"int64Value":"3","repeatedInt32Value":[2,2]})");
+  EXPECT_EQ(
+      out, R"({"boolValue":true,"int64Value":"3","repeatedInt32Value":[2,2]})");
 }
 
 // JSON values get special treatment when it comes to pre-existing values in
@@ -1295,6 +1331,24 @@ TEST_P(JsonTest, ClearPreExistingRepeatedInJsonValues) {
   (*s.mutable_fields())["hello"].set_string_value("world");
   ASSERT_OK(JsonStringToMessage("{}", &s));
   EXPECT_THAT(s.fields(), IsEmpty());
+}
+
+TEST(JsonErrorTest, FieldNameAndSyntaxErrorInSeparateChunks) {
+  std::unique_ptr<TypeResolver> resolver{
+      google::protobuf::util::NewTypeResolverForDescriptorPool(
+          "type.googleapis.com", DescriptorPool::generated_pool())};
+  io::internal::TestZeroCopyInputStream input_stream(
+      {"{\"bool_value\":", "5}"});
+  std::string result;
+  io::StringOutputStream output_stream(&result);
+  absl::Status s = JsonToBinaryStream(
+      resolver.get(), "type.googleapis.com/proto3.TestMessage", &input_stream,
+      &output_stream, ParseOptions{});
+  ASSERT_FALSE(s.ok());
+  EXPECT_THAT(
+      s.message(),
+      ContainsRegex("invalid *JSON *in *type.googleapis.com/proto3.TestMessage "
+                    "*@ *bool_value"));
 }
 
 }  // namespace

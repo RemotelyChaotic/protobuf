@@ -1,32 +1,9 @@
 // Protocol Buffers - Google's data interchange format
 // Copyright 2008 Google Inc.  All rights reserved.
-// https://developers.google.com/protocol-buffers/
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are
-// met:
-//
-//     * Redistributions of source code must retain the above copyright
-// notice, this list of conditions and the following disclaimer.
-//     * Redistributions in binary form must reproduce the above
-// copyright notice, this list of conditions and the following disclaimer
-// in the documentation and/or other materials provided with the
-// distribution.
-//     * Neither the name of Google Inc. nor the names of its
-// contributors may be used to endorse or promote products derived from
-// this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file or at
+// https://developers.google.com/open-source/licenses/bsd
 
 // Author: kenton@google.com (Kenton Varda)
 //  Based on original Protocol Buffers design by
@@ -39,10 +16,6 @@
 #include <memory>
 #include <vector>
 
-#include "google/protobuf/io/coded_stream.h"
-#include "google/protobuf/io/printer.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/wire_format.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/substitute.h"
@@ -56,7 +29,11 @@
 #include "google/protobuf/compiler/java/message_builder_lite.h"
 #include "google/protobuf/compiler/java/message_serialization.h"
 #include "google/protobuf/compiler/java/name_resolver.h"
+#include "google/protobuf/descriptor.h"
 #include "google/protobuf/descriptor.pb.h"
+#include "google/protobuf/io/coded_stream.h"
+#include "google/protobuf/io/printer.h"
+#include "google/protobuf/wire_format.h"
 
 // Must be last.
 #include "google/protobuf/port_def.inc"
@@ -73,7 +50,7 @@ namespace {
 std::string MapValueImmutableClassdName(const Descriptor* descriptor,
                                         ClassNameResolver* name_resolver) {
   const FieldDescriptor* value_field = descriptor->map_value();
-  GOOGLE_CHECK_EQ(FieldDescriptor::TYPE_MESSAGE, value_field->type());
+  ABSL_CHECK_EQ(FieldDescriptor::TYPE_MESSAGE, value_field->type());
   return name_resolver->GetImmutableClassName(value_field->message_type());
 }
 }  // namespace
@@ -84,7 +61,8 @@ MessageGenerator::MessageGenerator(const Descriptor* descriptor)
     : descriptor_(descriptor) {
   for (int i = 0; i < descriptor_->field_count(); i++) {
     if (IsRealOneof(descriptor_->field(i))) {
-      oneofs_.insert(descriptor_->field(i)->containing_oneof());
+      const OneofDescriptor* oneof = descriptor_->field(i)->containing_oneof();
+      ABSL_CHECK(oneofs_.emplace(oneof->index(), oneof).first->second == oneof);
     }
   }
 }
@@ -98,7 +76,7 @@ ImmutableMessageGenerator::ImmutableMessageGenerator(
       context_(context),
       name_resolver_(context->GetNameResolver()),
       field_generators_(descriptor, context_) {
-  GOOGLE_CHECK(HasDescriptorMethods(descriptor->file(), context->EnforceLite()))
+  ABSL_CHECK(HasDescriptorMethods(descriptor->file(), context->EnforceLite()))
       << "Generator factory error: A non-lite message generator is used to "
          "generate lite messages.";
 }
@@ -137,7 +115,7 @@ void ImmutableMessageGenerator::GenerateStaticVariables(
   // The descriptor for this type.
   printer->Print(
       vars,
-      // TODO(teboring): final needs to be added back. The way to fix it is to
+      // TODO: final needs to be added back. The way to fix it is to
       // generate methods that can construct the types, and then still declare
       // the types, and then init them in clinit with the new method calls.
       "$private$static $final$com.google.protobuf.Descriptors.Descriptor\n"
@@ -149,7 +127,7 @@ void ImmutableMessageGenerator::GenerateStaticVariables(
 
   // Generate static members for all nested types.
   for (int i = 0; i < descriptor_->nested_type_count(); i++) {
-    // TODO(kenton):  Reuse MessageGenerator objects?
+    // TODO:  Reuse MessageGenerator objects?
     ImmutableMessageGenerator(descriptor_->nested_type(i), context_)
         .GenerateStaticVariables(printer, bytecode_estimate);
   }
@@ -185,7 +163,7 @@ int ImmutableMessageGenerator::GenerateStaticVariableInitializers(
 
   // Generate static member initializers for all nested types.
   for (int i = 0; i < descriptor_->nested_type_count(); i++) {
-    // TODO(kenton):  Reuse MessageGenerator objects?
+    // TODO:  Reuse MessageGenerator objects?
     bytecode_estimate +=
         ImmutableMessageGenerator(descriptor_->nested_type(i), context_)
             .GenerateStaticVariableInitializers(printer);
@@ -246,9 +224,9 @@ int ImmutableMessageGenerator::GenerateFieldAccessorTableInitializer(
     bytecode_estimate += 6;
     printer->Print("\"$field_name$\", ", "field_name", info->capitalized_name);
   }
-  // We reproduce synthetic oneofs here since proto reflection needs these.
-  for (int i = 0; i < descriptor_->oneof_decl_count(); i++) {
-    const OneofDescriptor* oneof = descriptor_->oneof_decl(i);
+
+  for (int i = 0; i < descriptor_->real_oneof_decl_count(); i++) {
+    const OneofDescriptor* oneof = descriptor_->real_oneof_decl(i);
     const OneofGeneratorInfo* info = context_->GetOneofGeneratorInfo(oneof);
     bytecode_estimate += 6;
     printer->Print("\"$oneof_name$\", ", "oneof_name", info->capitalized_name);
@@ -294,13 +272,14 @@ void ImmutableMessageGenerator::GenerateInterface(io::Printer* printer) {
     field_generators_.get(descriptor_->field(i))
         .GenerateInterfaceMembers(printer);
   }
-  for (auto oneof : oneofs_) {
+  for (auto& kv : oneofs_) {
     printer->Print(
         "\n"
         "$classname$.$oneof_capitalized_name$Case "
         "get$oneof_capitalized_name$Case();\n",
         "oneof_capitalized_name",
-        context_->GetOneofGeneratorInfo(oneof)->capitalized_name, "classname",
+        context_->GetOneofGeneratorInfo(kv.second)->capitalized_name,
+        "classname",
         context_->GetNameResolver()->GetImmutableClassName(descriptor_));
   }
   printer->Outdent();
@@ -388,14 +367,6 @@ void ImmutableMessageGenerator::Generate(io::Printer* printer) {
                  "}\n"
                  "\n");
 
-  // TODO(b/248149118): Remove this superfluous override.
-  printer->Print(
-      "@java.lang.Override\n"
-      "public final com.google.protobuf.UnknownFieldSet\n"
-      "getUnknownFields() {\n"
-      "  return this.unknownFields;\n"
-      "}\n");
-
   GenerateDescriptorMethods(printer);
 
   // Nested types
@@ -426,7 +397,8 @@ void ImmutableMessageGenerator::Generate(io::Printer* printer) {
 
   // oneof
   absl::flat_hash_map<absl::string_view, std::string> vars;
-  for (auto oneof : oneofs_) {
+  for (auto& kv : oneofs_) {
+    const OneofDescriptor* oneof = kv.second;
     vars["oneof_name"] = context_->GetOneofGeneratorInfo(oneof)->name;
     vars["oneof_capitalized_name"] =
         context_->GetOneofGeneratorInfo(oneof)->capitalized_name;
@@ -442,7 +414,7 @@ void ImmutableMessageGenerator::Generate(io::Printer* printer) {
     printer->Print(
         vars,
         "public enum ${$$oneof_capitalized_name$Case$}$\n"
-        // TODO(dweis): Remove EnumLite when we want to break compatibility with
+        // TODO: Remove EnumLite when we want to break compatibility with
         // 3.x users
         "    implements com.google.protobuf.Internal.EnumLite,\n"
         "        com.google.protobuf.AbstractMessage.InternalOneOfEnum {\n");
@@ -732,12 +704,14 @@ void ImmutableMessageGenerator::GenerateParseFromMethods(io::Printer* printer) {
       "  return com.google.protobuf.GeneratedMessage$ver$\n"
       "      .parseWithIOException(PARSER, input, extensionRegistry);\n"
       "}\n"
+      "$parsedelimitedreturnannotation$\n"
       "public static $classname$ parseDelimitedFrom(java.io.InputStream "
       "input)\n"
       "    throws java.io.IOException {\n"
       "  return com.google.protobuf.GeneratedMessage$ver$\n"
       "      .parseDelimitedWithIOException(PARSER, input);\n"
       "}\n"
+      "$parsedelimitedreturnannotation$\n"
       "public static $classname$ parseDelimitedFrom(\n"
       "    java.io.InputStream input,\n"
       "    com.google.protobuf.ExtensionRegistryLite extensionRegistry)\n"
@@ -761,7 +735,10 @@ void ImmutableMessageGenerator::GenerateParseFromMethods(io::Printer* printer) {
       "}\n"
       "\n",
       "classname", name_resolver_->GetImmutableClassName(descriptor_), "ver",
-      GeneratedCodeVersionSuffix());
+      GeneratedCodeVersionSuffix(), "parsedelimitedreturnannotation",
+      context_->options().opensource_runtime
+          ? ""
+          : "@com.google.protobuf.Internal.ProtoMethodMayReturnNull");
 }
 
 // ===================================================================
@@ -824,7 +801,8 @@ void ImmutableMessageGenerator::GenerateDescriptorMethods(
     printer->Print(
         "@SuppressWarnings({\"rawtypes\"})\n"
         "@java.lang.Override\n"
-        "protected com.google.protobuf.MapField internalGetMapField(\n"
+        "protected com.google.protobuf.MapFieldReflectionAccessor "
+        "internalGetMapFieldReflection(\n"
         "    int number) {\n"
         "  switch (number) {\n");
     printer->Indent();
@@ -883,7 +861,7 @@ void ImmutableMessageGenerator::GenerateIsInitialized(io::Printer* printer) {
       "\n");
 
   // Check that all required fields in this message are set.
-  // TODO(kenton):  We can optimize this when we switch to putting all the
+  // TODO:  We can optimize this when we switch to putting all the
   //   "has" fields into a single bitfield.
   for (int i = 0; i < descriptor_->field_count(); i++) {
     const FieldDescriptor* field = descriptor_->field(i);
@@ -976,18 +954,6 @@ void ImmutableMessageGenerator::GenerateIsInitialized(io::Printer* printer) {
 
 // ===================================================================
 
-namespace {
-bool CheckHasBitsForEqualsAndHashCode(const FieldDescriptor* field) {
-  if (field->is_repeated()) {
-    return false;
-  }
-  if (HasHasbit(field)) {
-    return true;
-  }
-  return GetJavaType(field) == JAVATYPE_MESSAGE && !IsRealOneof(field);
-}
-}  // namespace
-
 void ImmutableMessageGenerator::GenerateEqualsAndHashCode(
     io::Printer* printer) {
   printer->Print(
@@ -1016,8 +982,7 @@ void ImmutableMessageGenerator::GenerateEqualsAndHashCode(
     const FieldDescriptor* field = descriptor_->field(i);
     if (!IsRealOneof(field)) {
       const FieldGeneratorInfo* info = context_->GetFieldGeneratorInfo(field);
-      bool check_has_bits = CheckHasBitsForEqualsAndHashCode(field);
-      if (check_has_bits) {
+      if (field->has_presence()) {
         printer->Print(
             "if (has$name$() != other.has$name$()) return false;\n"
             "if (has$name$()) {\n",
@@ -1025,7 +990,7 @@ void ImmutableMessageGenerator::GenerateEqualsAndHashCode(
         printer->Indent();
       }
       field_generators_.get(field).GenerateEqualsCode(printer);
-      if (check_has_bits) {
+      if (field->has_presence()) {
         printer->Outdent();
         printer->Print("}\n");
       }
@@ -1033,7 +998,8 @@ void ImmutableMessageGenerator::GenerateEqualsAndHashCode(
   }
 
   // Compare oneofs.
-  for (auto oneof : oneofs_) {
+  for (auto& kv : oneofs_) {
+    const OneofDescriptor* oneof = kv.second;
     printer->Print(
         "if (!get$oneof_capitalized_name$Case().equals("
         "other.get$oneof_capitalized_name$Case())) return false;\n",
@@ -1099,13 +1065,12 @@ void ImmutableMessageGenerator::GenerateEqualsAndHashCode(
     const FieldDescriptor* field = descriptor_->field(i);
     if (!IsRealOneof(field)) {
       const FieldGeneratorInfo* info = context_->GetFieldGeneratorInfo(field);
-      bool check_has_bits = CheckHasBitsForEqualsAndHashCode(field);
-      if (check_has_bits) {
+      if (field->has_presence()) {
         printer->Print("if (has$name$()) {\n", "name", info->capitalized_name);
         printer->Indent();
       }
       field_generators_.get(field).GenerateHashCode(printer);
-      if (check_has_bits) {
+      if (field->has_presence()) {
         printer->Outdent();
         printer->Print("}\n");
       }
@@ -1113,7 +1078,8 @@ void ImmutableMessageGenerator::GenerateEqualsAndHashCode(
   }
 
   // hashCode oneofs.
-  for (auto oneof : oneofs_) {
+  for (auto& kv : oneofs_) {
+    const OneofDescriptor* oneof = kv.second;
     printer->Print("switch ($oneof_name$Case_) {\n", "oneof_name",
                    context_->GetOneofGeneratorInfo(oneof)->name);
     printer->Indent();
@@ -1279,7 +1245,8 @@ void ImmutableMessageGenerator::GenerateKotlinDsl(io::Printer* printer) const {
         .GenerateKotlinDslMembers(printer);
   }
 
-  for (auto oneof : oneofs_) {
+  for (auto& kv : oneofs_) {
+    const OneofDescriptor* oneof = kv.second;
     printer->Print(
         "public val $oneof_name$Case: $message$.$oneof_capitalized_name$Case\n"
         "  @JvmName(\"get$oneof_capitalized_name$Case\")\n"
@@ -1307,9 +1274,6 @@ void ImmutableMessageGenerator::GenerateKotlinMembers(
                  "camelcase_name",
                  name_resolver_->GetKotlinFactoryName(descriptor_));
 
-  if (!context_->options().opensource_runtime) {
-    printer->Print("@com.google.errorprone.annotations.CheckReturnValue\n");
-  }
 
   printer->Print(
       "public inline fun $camelcase_name$(block: $message_kt$.Dsl.() -> "
@@ -1342,9 +1306,6 @@ void ImmutableMessageGenerator::GenerateTopLevelKotlinMembers(
     io::Printer* printer) const {
   printer->Print("@kotlin.jvm.JvmSynthetic\n");
 
-  if (context_->options().opensource_runtime) {
-    printer->Print("@com.google.errorprone.annotations.CheckReturnValue\n");
-  }
 
   printer->Print(
       "public inline fun $message$.copy(block: $message_kt$.Dsl.() -> "
@@ -1354,8 +1315,7 @@ void ImmutableMessageGenerator::GenerateTopLevelKotlinMembers(
       "message",
       EscapeKotlinKeywords(name_resolver_->GetClassName(descriptor_, true)),
       "message_kt",
-      EscapeKotlinKeywords(
-          name_resolver_->GetKotlinExtensionsClassName(descriptor_)));
+      name_resolver_->GetKotlinExtensionsClassNameEscaped(descriptor_));
 
   for (int i = 0; i < descriptor_->nested_type_count(); i++) {
     if (IsMapEntry(descriptor_->nested_type(i))) continue;
@@ -1366,12 +1326,14 @@ void ImmutableMessageGenerator::GenerateTopLevelKotlinMembers(
   GenerateKotlinOrNull(printer);
 }
 
-void ImmutableMessageGenerator::GenerateKotlinOrNull(io::Printer* printer) const {
+void ImmutableMessageGenerator::GenerateKotlinOrNull(
+    io::Printer* printer) const {
   for (int i = 0; i < descriptor_->field_count(); i++) {
     const FieldDescriptor* field = descriptor_->field(i);
     if (field->has_presence() && GetJavaType(field) == JAVATYPE_MESSAGE) {
       printer->Print(
-          "public val $full_classname$OrBuilder.$camelcase_name$OrNull: $full_name$?\n"
+          "public val $full_classname$OrBuilder.$camelcase_name$OrNull: "
+          "$full_name$?\n"
           "  get() = if (has$name$()) get$name$() else null\n\n",
           "full_classname",
           EscapeKotlinKeywords(name_resolver_->GetClassName(descriptor_, true)),
@@ -1396,7 +1358,7 @@ void ImmutableMessageGenerator::GenerateKotlinExtensions(
       "com.google.protobuf.ExtensionLite<$message$, T>): T {\n"
       "  return if (extension.isRepeated) {\n"
       "    get(extension as com.google.protobuf.ExtensionLite<$message$, "
-      "List<*>>) as T\n"
+      "kotlin.collections.List<*>>) as T\n"
       "  } else {\n"
       "    _builder.getExtension(extension)\n"
       "  }\n"
@@ -1409,7 +1371,8 @@ void ImmutableMessageGenerator::GenerateKotlinExtensions(
       "(com.google.protobuf.kotlin.OnlyForUseByGeneratedProtoCode::class)\n"
       "@kotlin.jvm.JvmName(\"-getRepeatedExtension\")\n"
       "public operator fun <E : kotlin.Any> get(\n"
-      "  extension: com.google.protobuf.ExtensionLite<$message$, List<E>>\n"
+      "  extension: com.google.protobuf.ExtensionLite<$message$, "
+      "kotlin.collections.List<E>>\n"
       "): com.google.protobuf.kotlin.ExtensionList<E, $message$> {\n"
       "  return com.google.protobuf.kotlin.ExtensionList(extension, "
       "_builder.getExtension(extension))\n"
@@ -1436,8 +1399,7 @@ void ImmutableMessageGenerator::GenerateKotlinExtensions(
 
   printer->Print(
       "@kotlin.jvm.JvmSynthetic\n"
-      "@kotlin.PublishedApi\n"
-      "internal fun <T : kotlin.Any> setExtension(extension: "
+      "public fun <T : kotlin.Any> setExtension(extension: "
       "com.google.protobuf.ExtensionLite<$message$, T>, "
       "value: T) {\n"
       "  _builder.setExtension(extension, value)\n"
@@ -1586,6 +1548,11 @@ void ImmutableMessageGenerator::GenerateAnyMethods(io::Printer* printer) {
       "      defaultInstance.getDescriptorForType().getFullName());\n"
       "}\n"
       "\n"
+      "public boolean isSameTypeAs(com.google.protobuf.Message message) {\n"
+      "  return getTypeNameFromTypeUrl(getTypeUrl()).equals(\n"
+      "      message.getDescriptorForType().getFullName());\n"
+      "}\n"
+      "\n"
       "@SuppressWarnings(\"serial\")\n"
       "private volatile com.google.protobuf.Message cachedUnpackValue;\n"
       "\n"
@@ -1611,7 +1578,30 @@ void ImmutableMessageGenerator::GenerateAnyMethods(io::Printer* printer) {
       "      .parseFrom(getValue());\n"
       "  cachedUnpackValue = result;\n"
       "  return result;\n"
-      "}\n");
+      "}\n"
+      "\n"
+      "@java.lang.SuppressWarnings(\"unchecked\")\n"
+      "public <T extends com.google.protobuf.Message> T unpackSameTypeAs("
+      "T message)\n"
+      "    throws com.google.protobuf.InvalidProtocolBufferException {\n");
+  printer->Print(
+      "  boolean invalidValue = false;\n"
+      "  if (cachedUnpackValue != null) {\n"
+      "    if (cachedUnpackValue.getClass() == message.getClass()) {\n"
+      "      return (T) cachedUnpackValue;\n"
+      "    }\n"
+      "    invalidValue = true;\n"
+      "  }\n"
+      "  if (invalidValue || !isSameTypeAs(message)) {\n"
+      "    throw new com.google.protobuf.InvalidProtocolBufferException(\n"
+      "        \"Type of the Any message does not match the given "
+      "exemplar.\");\n"
+      "  }\n"
+      "  T result = (T) message.getParserForType().parseFrom(getValue());\n"
+      "  cachedUnpackValue = result;\n"
+      "  return result;\n"
+      "}\n"
+      "\n");
 }
 
 }  // namespace java

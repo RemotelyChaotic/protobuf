@@ -19,34 +19,35 @@ cc_library(
 
 cc_library(
     name = "names_internal",
+    srcs = [
+        "names.cc",
+    ],
     hdrs = [
         "names.h",
         "nsobject_methods.h",
-    ],
-    srcs = [
-        "names.cc",
     ],
     copts = COPTS,
     include_prefix = "google/protobuf/compiler/objectivec",
     visibility = ["//pkg:__pkg__"],
     deps = [
         ":line_consumer",
-        "//src/google/protobuf/compiler:code_generator",
         "//src/google/protobuf:protobuf_nowkt",
+        "//src/google/protobuf/compiler:code_generator",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log:absl_log",
     ],
 )
 
 cc_library(
     name = "line_consumer",
-    hdrs = ["line_consumer.h"],
     srcs = ["line_consumer.cc"],
+    hdrs = ["line_consumer.h"],
     copts = COPTS,
     include_prefix = "google/protobuf/compiler/objectivec",
     visibility = ["//pkg:__pkg__"],
     deps = [
-        "//src/google/protobuf/compiler:code_generator",
         "//src/google/protobuf:protobuf_nowkt",
+        "//src/google/protobuf/compiler:code_generator",
     ],
 )
 
@@ -94,8 +95,10 @@ cc_library(
     deps = [
         ":line_consumer",
         ":names",
+        "//src/google/protobuf:descriptor_legacy",
         "//src/google/protobuf:protobuf_nowkt",
         "//src/google/protobuf/compiler:code_generator",
+        "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -132,6 +135,13 @@ cc_test(
     ],
 )
 
+# Exposed only for the version check to ensure the ObjC Runtime and Generator
+# are in sync.
+exports_files(
+    ["file.cc"],
+    visibility = ["//objectivec:__pkg__"],
+)
+
 ################################################################################
 # Distribution packaging
 ################################################################################
@@ -145,9 +155,12 @@ pkg_files(
 
 filegroup(
     name = "test_srcs",
-    srcs = glob([
-        "*_test.cc",
-        "*unittest.cc",
-    ]),
+    srcs = glob(
+        [
+            "*_test.cc",
+            "*unittest.cc",
+        ],
+        allow_empty = True,
+    ),
     visibility = ["//src/google/protobuf/compiler:__pkg__"],
 )
